@@ -9,7 +9,7 @@ Outputs (data/):
   d{d}/chain_val.pkl        50 paired validation transitions (early stopping), same collection
   meta.json                 configs, seeds, sizes
 """
-import json, os, pickle, sys, time  # noqa: E401
+import argparse, json, os, pickle, sys, time  # noqa: E401
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -34,10 +34,13 @@ def dump(obj, path):
 
 
 if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--workers", type=int, default=max(1, min(96, (os.cpu_count() or 2) - 2)))
+    a = ap.parse_args()
     t0 = time.time()
     ss = np.random.SeedSequence(MASTER_SEED).spawn(10)
     seed = lambda i: int(ss[i].generate_state(1)[0])
-    with Pool(max(1, min(96, (os.cpu_count() or 2) - 2)), initializer=D.init_worker, initargs=(CFG["env"], CFG["policy"], CFG["segment"])) as pool:
+    with Pool(a.workers, initializer=D.init_worker, initargs=(CFG["env"], CFG["policy"], CFG["segment"])) as pool:
         # sim-only transitions
         rng = np.random.default_rng(seed(2))
         names, probs = list(D.MIX), np.array(list(D.MIX.values()))
