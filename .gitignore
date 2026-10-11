@@ -1,4 +1,9 @@
 data/
-outputs/
 third_party/
 __pycache__/
+# outputs: keep the 45 per-run metric files and the results page, ignore logs and predictions
+outputs/*
+!outputs/results/
+outputs/results/*
+!outputs/results/res_*.json
+!outputs/report/

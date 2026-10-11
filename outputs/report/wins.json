@@ -1,0 +1,47 @@
+{
+ "safety": {
+  "raw_sim": 0,
+  "outcome_only": 0,
+  "B1_mc_real": 0,
+  "B2_route_scape": 0,
+  "W_direct": 44,
+  "W_simbacked": 42,
+  "res_direct": 43
+ },
+ "path": {
+  "raw_sim": 0,
+  "outcome_only": 0,
+  "B1_mc_real": 0,
+  "B2_route_scape": 1,
+  "W_direct": 38,
+  "W_simbacked": 15,
+  "res_direct": 45
+ },
+ "time": {
+  "raw_sim": 0,
+  "outcome_only": 7,
+  "B1_mc_real": 0,
+  "B2_route_scape": 0,
+  "W_direct": 33,
+  "W_simbacked": 28,
+  "res_direct": 44
+ },
+ "ttc": {
+  "raw_sim": 0,
+  "outcome_only": 0,
+  "B1_mc_real": 0,
+  "B2_route_scape": 0,
+  "W_direct": 42,
+  "W_simbacked": 40,
+  "res_direct": 42
+ },
+ "expo": {
+  "raw_sim": 0,
+  "outcome_only": 0,
+  "B1_mc_real": 0,
+  "B2_route_scape": 0,
+  "W_direct": 44,
+  "W_simbacked": 37,
+  "res_direct": 39
+ }
+}

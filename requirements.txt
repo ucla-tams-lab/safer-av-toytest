@@ -1,0 +1,8 @@
+# Python 3.11. Versions used for the reported results.
+numpy==2.4.6
+torch==2.11.0
+gymnasium==1.3.0
+mujoco==3.14.0
+matplotlib==3.11.2
+# gymnasium-robotics at the exact commit used (30 commits after v1.4.2; includes a fix needed for MuJoCo >= 3.12)
+gymnasium-robotics @ git+https://github.com/Farama-Foundation/Gymnasium-Robotics.git@4d1ebecbc6436806cfbc0e42ebc36f594d05844e

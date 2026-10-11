@@ -37,7 +37,7 @@ if __name__ == "__main__":
     t0 = time.time()
     ss = np.random.SeedSequence(MASTER_SEED).spawn(10)
     seed = lambda i: int(ss[i].generate_state(1)[0])
-    with Pool(min(96, os.cpu_count()), initializer=D.init_worker, initargs=(CFG["env"], CFG["policy"], CFG["segment"])) as pool:
+    with Pool(max(1, min(96, (os.cpu_count() or 2) - 2)), initializer=D.init_worker, initargs=(CFG["env"], CFG["policy"], CFG["segment"])) as pool:
         # sim-only transitions
         rng = np.random.default_rng(seed(2))
         names, probs = list(D.MIX), np.array(list(D.MIX.values()))
