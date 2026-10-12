@@ -1,7 +1,7 @@
 # safer-av: Terminal-State-Aware Long-Horizon Sim-to-Real Evaluation (toy study)
 
 Given a few short real–simulation paired transitions and many short simulated transitions, we estimate the **real
-performance of a fixed goal-conditioned policy over a long goal sequence** $\mathbf g_{1:K}$. Unlike segment-wise
+performance of a fixed goal-conditioned policy over a long sequence of goals**. Unlike segment-wise
 outcome correction (SCAPE-style), backward Bellman calibration also corrects how the real–simulation terminal-state
 mismatch changes the cost of all remaining goals.
 
@@ -37,65 +37,26 @@ mismatch changes the cost of all remaining goals.
 
 ### How our three estimators work
 
-Notation: a test sequence starts at state $x_1$ and visits goals $\mathbf g_{1:K}=(g_1,\dots,g_K)$. For one segment,
-$y^\mathrm R, y^\mathrm S$ are its real and simulated costs and $x^\mathrm R_+, x^\mathrm S_+$ the states where the real and
-the simulated run end it. $\mathbf g_{k:K}$ are the goals still to visit.
+The real system ends a segment in a different state than the simulator (for example, faster), and that changes the
+cost of all later goals. All three estimators learn this effect from the paired segments.
 
-**Two learned models (used by Direct and Sim-backed).**
+**Direct.** A model `W(state, remaining goals)` predicts the real cost of finishing the remaining goals from a state.
+It is trained backward, from the last goal to the first: the target for a paired segment is "its real cost + W at the
+state where the real run ended". A small correction model `h` turns simulation-only segments into extra real-like
+targets. At test time we only read the model at the start: `J_real ≈ W(start, all goals)`. No simulation is needed.
 
-- $W_\theta(x;\mathbf g_{k:K})$: the expected **real** cost of visiting the remaining goals $\mathbf g_{k:K}$ from state $x$.
-  It is learned backward: first with one remaining goal, then two, and so on up to eight. For a paired segment the
-  training target is this segment's real cost plus the already learned value of the rest, starting from where the real
-  run ended:
+**Sim-backed.** Run the test sequence in the simulator (30 runs). At every simulated segment, `h` estimates how much
+more the real system would cost from that state, including the effect of ending the segment in a different place.
+The estimate is the simulated cost plus these corrections: `J_real ≈ J_sim + Σ_segments (real − sim correction)`.
 
-  $$\widehat Z_\mathrm R = y^\mathrm R + \widehat W(x^\mathrm R_+;\mathbf g_{k+1:K}).$$
-
-- $h_\phi(x,\mathbf g_{k:K},z^\mathrm S)$: a calibration model that maps the same quantity computed from the simulated
-  run, $\widehat Z_\mathrm S = y^\mathrm S + \widehat W(x^\mathrm S_+;\mathbf g_{k+1:K})$, to the real one $\widehat Z_\mathrm R$.
-  It is fit on paired segments. Simulation-only segments have no real run, so $h_\phi$ turns their $\widehat Z_\mathrm S$
-  into a corrected real target $\widetilde Z_\mathrm R = h_\phi(x,\mathbf g_{k:K},\widehat Z_\mathrm S)$, which is extra
-  training data for $W_\theta$ (75% of the training rows are paired, 25% corrected simulation rows).
-
-**1. Direct.** Read the learned value at the start state:
-
-$$\widehat J_\mathrm R^\mathrm{direct} = \widehat W(x_1;\mathbf g_{1:K}).$$
-
-**2. Sim-backed: run the sequence in simulation, then correct every segment.** Run the whole test sequence $M=30$
-times in simulation from $x_1$. For run $j$ and segment $k$, with simulated cost $Y^\mathrm S_{j,k}$ and states
-$X^\mathrm S_{j,k}\to X^\mathrm S_{j,k+1}$:
-
-$$\widehat Z^\mathrm S_{j,k} = Y^\mathrm S_{j,k} + \widehat W(X^\mathrm S_{j,k+1};\mathbf g_{k+1:K}),\qquad
-\widehat\Delta_{j,k} = h_\phi\big(X^\mathrm S_{j,k},\mathbf g_{k:K},\widehat Z^\mathrm S_{j,k}\big) - \widehat Z^\mathrm S_{j,k},$$
-
-$$\widehat J_\mathrm R^\mathrm{sim} = \underbrace{\frac1M\sum_{j=1}^{M}\sum_{k=1}^{K} Y^\mathrm S_{j,k}}_{\text{simulated cost}}
-+ \underbrace{\sum_{k=1}^{K}\frac1M\sum_{j=1}^{M}\widehat\Delta_{j,k}}_{\text{correction per segment}}.$$
-
-$\widehat\Delta_{j,k}$ is how much more (or less) the real system would cost than the simulation from the same state
-$X^\mathrm S_{j,k}$, including the effect of ending the segment in a different state. Summing these corrections along
-simulated runs gives exactly the real–simulation gap when the models are exact (sim-to-real decomposition,
-METHODOLOGY §5).
-
-**3. Residual direct: learn only the real–simulation difference.** Write the real value as the simulated value plus a
-difference, $W_\mathrm R = W_\mathrm S + D$. $W_\mathrm S(x;\mathbf g)$ is not learned: it is computed by running the
-simulator from $x$ through the goals $\mathbf g$. Only $D$ is learned, backward like $W_\theta$, with the target
-
-$$D(x;\mathbf g_{k:K}) \leftarrow \underbrace{(y^\mathrm R - y^\mathrm S)}_{\text{cost difference of this segment}}
-+ \underbrace{\big[W_\mathrm S(x^\mathrm R_+;\mathbf g_{k+1:K}) - W_\mathrm S(x^\mathrm S_+;\mathbf g_{k+1:K})\big]}_{\text{effect of the different end state, measured in simulation}}
-+ \underbrace{\widehat D(x^\mathrm R_+;\mathbf g_{k+1:K})}_{\text{learned difference of the rest}}.$$
-
-Simulation-only segments enter through a calibration model, as above. The estimate is the simulated cost of the test
-sequence plus the learned difference:
-
-$$\widehat J_\mathrm R^\mathrm{res} = \widehat J_\mathrm S + \widehat D(x_1;\mathbf g_{1:K}).$$
-
-This helps when the difference is much smaller than the cost itself. For Path, the K=8 real cost is about 20.5 and
-the real–simulation difference about 1; learning a value of 20 with 0.3% error already costs 0.06, while learning a
-difference of 1 does not have this problem. The price is that $W_\mathrm S$ needs many multi-segment simulation runs
-during training.
+**Residual direct.** Like Direct, but the model learns only the difference between real and simulation:
+`W_real = W_sim + D`. `W_sim` is computed by running the simulator; only the small difference `D` is learned (same
+backward training). Estimate: `J_real ≈ J_sim + D(start, all goals)`. This helps when the difference is small compared
+with the cost itself, e.g. Path: cost ≈ 20, real–sim difference ≈ 1.
 
 ## Evaluation
 
-Each method estimates the real sequence cost $J_\mathrm R(\mathbf g_{1:K})$ of every test sequence, separately for each of
+Each method estimates the real cost of every test sequence, separately for each of
 five costs. A segment cost is computed from the trajectory of one segment (`safer_av/segment.py`); the sequence cost is
 the sum over its K segments.
 
@@ -109,7 +70,7 @@ the sum over its K segments.
 
 Path and Time add 5 when a segment does not reach its goal within 5 s.
 
-Error metrics, computed over the test sequences of each length K ∈ {1, 2, 4, 8} against $J_\mathrm R$ from 100 real
+Error metrics, computed over the test sequences of each length K ∈ {1, 2, 4, 8} against the real cost from 100 real
 rollouts per sequence:
 
 | Metric | Meaning |
@@ -145,7 +106,7 @@ K=8 MAE, mean over 9 runs (lower is better; best in bold). Means of every metric
   single segment from rest is almost the same in real and simulation, so no correction is needed.
 - The simulation-backed estimator is worse than target-only on Path and Time at larger n; no single estimator is best
   on every cost.
-- The 75% share of paired targets in the training rows of $W_\theta$ was chosen by looking at test results (a small sweep).
+- The 75% share of paired targets in the training rows of W was chosen by looking at test results (a small sweep).
 
 ## Running
 
@@ -159,7 +120,7 @@ A GPU is strongly recommended for step 3; CPU-only training works but is very sl
 
 | Step | Script | Output |
 |---|---|---|
-| 1 | `scripts/make_data.py` | `data/`: test sequences with ground truth, their simulation rollouts, $\mathcal D_\mathrm S$ (sim_train), real chains per data seed |
+| 1 | `scripts/make_data.py` | `data/`: test sequences with ground truth, their simulation rollouts, simulation-only data (sim_train), real chains per data seed |
 | 2 | `scripts/make_rows.py` | `data/`: simulated transitions near the real states (seedR), Monte Carlo rows for the residual variant, B1/B2 windows |
 | 3 | `scripts/run.py D N S` | `outputs/results/res_d{D}_n{N}_s{S}.json`: 8 methods × 5 costs, MAE / bias / RMSE / Spearman per K |
 | 4 | `scripts/report.py` | `outputs/report/`: summary.json (means over the 9 runs), fig_mae_vs_n.png, report.html |
@@ -190,21 +151,21 @@ hardware or library versions can change the numbers slightly through floating-po
 
 | Term (METHODOLOGY) | Code |
 |---|---|
-| remaining-goal sequence $\mathbf g_{k:K}$ | `suffix` / `s`; its tail $\mathbf g_{k+1:K}$ is `tail` |
-| real continuation value $W_\theta$ | `W` in `safer_av/ours.py` |
-| calibration model $h_\phi$ | `h` in `safer_av/ours.py` |
-| paired Bellman targets $\widehat Z_\mathrm R$, $\widehat Z_\mathrm S$ | `ZR`, `ZS` |
-| segment cost $y$, terminal state $x_{k+1}$ | `y_<cost>`, `x_plus` in each transition record |
-| $\widehat J_\mathrm R^\mathrm{direct}$, $\widehat J_\mathrm R^\mathrm{sim}$ | `direct`, `sim_backed` (results keys `W_direct`, `W_simbacked`) |
-| residual $D$, $W_\mathrm S$ | `D`, `WS_S` / `WS_R` in `safer_av/residual.py` (results key `res_direct`) |
+| remaining goals (remaining-goal sequence) | `suffix`; without the current goal: `tail` |
+| value model W (real continuation value) | `W` in `safer_av/ours.py` |
+| correction model h (calibration model) | `h` in `safer_av/ours.py` |
+| paired targets, real / sim (paired Bellman targets) | `ZR`, `ZS` |
+| segment cost, end state of a segment | `y_<cost>`, `x_plus` in each transition record |
+| Direct, Sim-backed | `direct`, `sim_backed` (result keys `W_direct`, `W_simbacked`) |
+| Residual direct: difference D, simulated value W_sim | `D`, `WS_S` / `WS_R` in `safer_av/residual.py` (result key `res_direct`) |
 
 | File | Content |
 |---|---|
 | `safer_av/maze.py`, `policy.py`, `envs.py` | maze and goal graph, policy, real / simulation dynamics |
 | `safer_av/segment.py`, `route.py` | one segment and its costs; a goal sequence executed without reset |
-| `safer_av/data.py` | start-state samplers, $\mathcal D_\mathrm S$, test ground truth, real chains |
+| `safer_av/data.py` | start-state samplers, simulation-only data, test ground truth, real chains |
 | `safer_av/models.py` | input encoding, MLP regressor, training budget |
 | `safer_av/backward.py` | goal-sequence reuse, target-only, segment-wise outcome correction |
-| `safer_av/ours.py` | backward Bellman calibration ($W_\theta$, $h_\phi$), direct and simulation-backed estimators |
-| `safer_av/residual.py` | residual variant (Monte Carlo $W_\mathrm S$, learned $D$) |
+| `safer_av/ours.py` | value model W and correction model h; Direct and Sim-backed |
+| `safer_av/residual.py` | Residual direct (W_sim by running the simulator, learned D) |
 | `safer_av/route_baselines.py` | B1, B2 |

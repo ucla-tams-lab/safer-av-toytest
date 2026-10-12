@@ -16,7 +16,7 @@ Section 8 states how the method is instantiated in this repository.
 
 An evaluation query is a goal sequence $\mathbf g_{1:K}=(g_1,\dots,g_K)$ of $K$ local goals executed by a fixed
 goal-conditioned policy $\pi$. The sequence length and ordering may vary across queries. For environment
-$e\in\{\mathrm R,\mathrm S\}$ (real, simulation), segment $k$ begins from state $X_k^e$ and produces a scalar cost
+$e\in\lbrace \mathrm R,\mathrm S\rbrace$ (real, simulation), segment $k$ begins from state $X_k^e$ and produces a scalar cost
 $Y_k^e$ and terminal state $X_{k+1}^e$:
 
 $$
@@ -32,11 +32,11 @@ $$
 and the objective is to estimate the real performance $J_\mathrm R^\pi(\mathbf g_{1:K})$.
 
 **Short paired data.** A limited dataset
-$\mathcal D_\mathrm{pair}=\{(x_{i,k}, g_i, y_{i,k}^\mathrm R, x_{i,k+1}^\mathrm R, y_{i,k}^\mathrm S, x_{i,k+1}^\mathrm S)\}_{i=1}^{n}$,
+$\mathcal D_\mathrm{pair}=\lbrace (x_{i,k}, g_i, y_{i,k}^\mathrm R, x_{i,k+1}^\mathrm R, y_{i,k}^\mathrm S, x_{i,k+1}^\mathrm S)\rbrace _{i=1}^{n}$,
 where the real and simulated executions start from the same state and execute the same local goal.
 
 **Short simulation data.** A larger dataset of local simulated transitions
-$\mathcal D_\mathrm S=\{(x_{j,k}^\mathrm S, g_j, y_{j,k}^\mathrm S, x_{j,k+1}^\mathrm S)\}_{j=1}^{m}$, $m\gg n$.
+$\mathcal D_\mathrm S=\lbrace (x_{j,k}^\mathrm S, g_j, y_{j,k}^\mathrm S, x_{j,k+1}^\mathrm S)\rbrace _{j=1}^{m}$, $m\gg n$.
 
 Here $i$ and $j$ index short-transition samples. When a transition is reused at position $k$ of a goal sequence, $k$
 denotes its assigned position and $k+1$ its terminal state. Short transitions may be collected independently or
@@ -56,7 +56,7 @@ state determines the difficulty of all remaining goals. With $\mu_e(x,g):=\mathb
 **segment-wise outcome correction** estimates
 
 $$
-J_\mathrm{seg}^\pi = J_\mathrm S^\pi + \sum_{k=1}^{K}\gamma^{k-1}\,\mathbb E_{X_k\sim d_{\mathrm S,k}}\big[\mu_\mathrm R(X_k,g_k)-\mu_\mathrm S(X_k,g_k)\big],
+J_\mathrm{seg}^\pi = J_\mathrm S^\pi + \sum_{k=1}^{K}\gamma^{k-1}\thinspace \mathbb E_{X_k\sim d_{\mathrm S,k}}\big[\mu_\mathrm R(X_k,g_k)-\mu_\mathrm S(X_k,g_k)\big],
 $$
 
 where $d_{\mathrm S,k}$ is the state distribution at segment $k$ of the long simulation rollout. Even with perfect local
@@ -72,7 +72,7 @@ prediction forward repeatedly.
 For the remaining goal sequence $\mathbf g_{k:K}=(g_k,\dots,g_K)$, the **real continuation value** is
 
 $$
-W_{\mathrm R,k}^\pi(x;\mathbf g_{k:K}) := \mathbb E_\mathrm R^\pi\Big[\sum_{\ell=k}^{K}\gamma^{\ell-k}Y_\ell^\mathrm R \,\Big|\, X_k^\mathrm R=x\Big],\qquad W_{\mathrm R,K+1}^\pi=0,
+W_{\mathrm R,k}^\pi(x;\mathbf g_{k:K}) := \mathbb E_\mathrm R^\pi\Big[\sum_{\ell=k}^{K}\gamma^{\ell-k}Y_\ell^\mathrm R \thinspace \Big|\thinspace  X_k^\mathrm R=x\Big],\qquad W_{\mathrm R,K+1}^\pi=0,
 $$
 
 the expected discounted cost of executing all remaining goals in the real world from state $x$. A shared approximation
@@ -84,8 +84,8 @@ an input because the same state may be safe for one continuation and risky for a
 Given an already learned $\widehat W_{k+1}$, a paired transition whose current goal is $g_k$ gives
 
 $$
-\widehat Z_{i,\mathrm R}^{(k)} := y_{i,k}^\mathrm R + \gamma\,\widehat W_{k+1}(x_{i,k+1}^\mathrm R;\mathbf g_{k+1:K}),\qquad
-\widehat Z_{i,\mathrm S}^{(k)} := y_{i,k}^\mathrm S + \gamma\,\widehat W_{k+1}(x_{i,k+1}^\mathrm S;\mathbf g_{k+1:K}).
+\widehat Z_{i,\mathrm R}^{(k)} := y_{i,k}^\mathrm R + \gamma\thinspace \widehat W_{k+1}(x_{i,k+1}^\mathrm R;\mathbf g_{k+1:K}),\qquad
+\widehat Z_{i,\mathrm S}^{(k)} := y_{i,k}^\mathrm S + \gamma\thinspace \widehat W_{k+1}(x_{i,k+1}^\mathrm S;\mathbf g_{k+1:K}).
 $$
 
 Both targets evaluate the remaining goals under real-world dynamics; they differ in how the current segment is
@@ -113,7 +113,7 @@ simulated transition in $\mathcal D_\mathrm S$, choose a valid remaining-goal se
 and compute
 
 $$
-\widehat Z_{j,\mathrm S}^{(k)} := y_{j,k}^\mathrm S + \gamma\,\widehat W_{k+1}(x_{j,k+1}^\mathrm S;\mathbf g_{k+1:K}),\qquad
+\widehat Z_{j,\mathrm S}^{(k)} := y_{j,k}^\mathrm S + \gamma\thinspace \widehat W_{k+1}(x_{j,k+1}^\mathrm S;\mathbf g_{k+1:K}),\qquad
 \widetilde Z_{j,\mathrm R}^{(k)} := h_\phi\big(x_{j,k}^\mathrm S,\mathbf g_{k:K},\widehat Z_{j,\mathrm S}^{(k)}\big).
 $$
 
@@ -140,7 +140,7 @@ $W_\theta$. Its accuracy depends on whether $W_\theta$ generalizes to the new in
 cost $\widehat J_\mathrm S^\pi=\frac1M\sum_{j}\sum_k\gamma^{k-1}Y_{j,k}^\mathrm S$. For every simulated segment,
 
 $$
-\widehat Z_{j,\mathrm S}^{(k)} := Y_{j,k}^\mathrm S+\gamma\,\widehat W_{k+1}(X_{j,k+1}^\mathrm S;\mathbf g_{k+1:K}),\qquad
+\widehat Z_{j,\mathrm S}^{(k)} := Y_{j,k}^\mathrm S+\gamma\thinspace \widehat W_{k+1}(X_{j,k+1}^\mathrm S;\mathbf g_{k+1:K}),\qquad
 \widehat\Delta_{j,k} := h_\phi\big(X_{j,k}^\mathrm S,\mathbf g_{k:K},\widehat Z_{j,\mathrm S}^{(k)}\big)-\widehat Z_{j,\mathrm S}^{(k)},
 $$
 
@@ -167,14 +167,14 @@ $$
 **Proposition.** If real and simulated executions have the same initial-state distribution, then
 
 $$
-J_\mathrm R^\pi-J_\mathrm S^\pi=\sum_{k=1}^{K}\gamma^{k-1}\,\mathbb E_{X_k\sim d_{\mathrm S,k}}\big[\Delta_k(X_k)\big].
+J_\mathrm R^\pi-J_\mathrm S^\pi=\sum_{k=1}^{K}\gamma^{k-1}\thinspace \mathbb E_{X_k\sim d_{\mathrm S,k}}\big[\Delta_k(X_k)\big].
 $$
 
 *Proof sketch.* Let $G_k:=W_{\mathrm R,k}^\pi-W_{\mathrm S,k}^\pi$ and introduce the hybrid target
 $H_k(x):=\mathbb E_\mathrm S[Y_k^\mathrm S+\gamma W_{\mathrm R,k+1}^\pi(X_{k+1}^\mathrm S)\mid x,g_k]$ (simulated
 current outcome and next-state distribution, real continuation value). Then $W_{\mathrm R,k}^\pi-H_k=\Delta_k$ and
-$H_k-W_{\mathrm S,k}^\pi=\gamma\,\mathbb E_\mathrm S[G_{k+1}(X_{k+1}^\mathrm S)\mid x,g_k]$, so
-$G_k(x)=\Delta_k(x)+\gamma\,\mathbb E_\mathrm S[G_{k+1}(X_{k+1}^\mathrm S)\mid x,g_k]$. Averaging over
+$H_k-W_{\mathrm S,k}^\pi=\gamma\thinspace \mathbb E_\mathrm S[G_{k+1}(X_{k+1}^\mathrm S)\mid x,g_k]$, so
+$G_k(x)=\Delta_k(x)+\gamma\thinspace \mathbb E_\mathrm S[G_{k+1}(X_{k+1}^\mathrm S)\mid x,g_k]$. Averaging over
 $d_{\mathrm S,k}$, unrolling to $G_{K+1}=0$, and using $d_{\mathrm R,1}=d_{\mathrm S,1}$ gives the result. $\square$
 
 **Interpretation.** At each segment, the remaining real–simulation gap splits into the local mismatch
@@ -188,7 +188,7 @@ $d_{\mathrm S,k}$. This is the justification of the simulation-backed estimator.
 With the outcome-only discrepancy $\Delta_k^\mathrm{out}(x):=\mu_\mathrm R(x,g_k)-\mu_\mathrm S(x,g_k)$,
 
 $$
-\Delta_k(x)=\Delta_k^\mathrm{out}(x)+\gamma\Big\{\mathbb E_\mathrm R\big[W_{\mathrm R,k+1}^\pi(X_{k+1}^\mathrm R)\mid x,g_k\big]-\mathbb E_\mathrm S\big[W_{\mathrm R,k+1}^\pi(X_{k+1}^\mathrm S)\mid x,g_k\big]\Big\}.
+\Delta_k(x)=\Delta_k^\mathrm{out}(x)+\gamma\Big\lbrace \mathbb E_\mathrm R\big[W_{\mathrm R,k+1}^\pi(X_{k+1}^\mathrm R)\mid x,g_k\big]-\mathbb E_\mathrm S\big[W_{\mathrm R,k+1}^\pi(X_{k+1}^\mathrm S)\mid x,g_k\big]\Big\rbrace .
 $$
 
 Segment-wise outcome correction is the special case that removes the second term, so
@@ -223,7 +223,7 @@ computed by running the simulator from $x$ along the remaining goals (Monte Carl
 $$
 D(x_{i,k};\mathbf g_{k:K}) \leftarrow \underbrace{(y_{i,k}^\mathrm R-y_{i,k}^\mathrm S)}_{\text{current outcome mismatch}}
 +\gamma\underbrace{\big[W_\mathrm S(x_{i,k+1}^\mathrm R)-W_\mathrm S(x_{i,k+1}^\mathrm S)\big]}_{\text{terminal-state mismatch, simulation value}}
-+\gamma\,\widehat D_{k+1}(x_{i,k+1}^\mathrm R;\mathbf g_{k+1:K}).
++\gamma\thinspace \widehat D_{k+1}(x_{i,k+1}^\mathrm R;\mathbf g_{k+1:K}).
 $$
 
 Simulation data enter through a calibration model $h_D(x,\mathbf g_{k:K},z^\mathrm S)$ with
