@@ -61,14 +61,14 @@ rollouts per sequence:
 | Bias | mean signed error (estimate − truth) |
 | RMSE | root mean squared error |
 | Spearman | rank correlation between estimates and truth over sequences (how well candidate routes are ranked) |
-| Wins vs. target-only | number of runs in which a method has a lower K=8 MAE than target-only, the strongest baseline |
 
-Every metric is reported per number of paired transitions n ∈ {200, 400, 600, 800, 1000} as mean ± std over 9 runs.
+Every metric is reported per number of paired transitions n ∈ {200, 400, 600, 800, 1000} and averaged over the 9 runs
+(3 data seeds × 3 model seeds).
 
 ## Results (K = 8)
 
-K=8 MAE, mean over 9 runs (lower is better; best in bold). Full tables, standard deviations, Spearman and per-K results
-are on the results page.
+K=8 MAE, mean over 9 runs (lower is better; best in bold). Means of every metric for every K and n are in
+`outputs/report/summary.json`, per-run values in `outputs/results/`.
 
 | Cost | n | Raw sim | Seg. outcome | Target-only | B1 | B2 | Direct | Sim-backed | Residual direct |
 |---|---|---|---|---|---|---|---|---|---|
@@ -82,8 +82,6 @@ are on the results page.
 | Path | 1000 | 1.074 | 0.820 | 0.094 | 0.712 | 0.277 | 0.056 | 0.131 | **0.034** |
 | Time | 200 | 0.035 | 0.013 | 0.007 | 0.044 | 0.029 | 0.005 | 0.006 | **0.004** |
 | Time | 1000 | 0.035 | 0.018 | 0.008 | 0.031 | 0.017 | 0.005 | 0.009 | **0.003** |
-
-Comparisons won against target-only at K=8 (5 costs × 5 values of n × 9 runs = 225): direct 201, residual direct 213, simulation-backed 162, segment-wise outcome correction 7, B1 0, B2 1.
 
 - For K = 2, 4 and 8, the direct estimator has a lower MAE than every baseline for all five costs and all five values of n.
 - At K = 1, raw simulation is the most accurate for Safety, Exposure and Path: every test sequence starts at rest, and a
@@ -107,7 +105,7 @@ A GPU is strongly recommended for step 3; CPU-only training works but is very sl
 | 1 | `scripts/make_data.py` | `data/`: test sequences with ground truth, their simulation rollouts, $\mathcal D_\mathrm S$ (sim_train), real chains per data seed |
 | 2 | `scripts/make_rows.py` | `data/`: simulated transitions near the real states (seedR), Monte Carlo rows for the residual variant, B1/B2 windows |
 | 3 | `scripts/run.py D N S` | `outputs/results/res_d{D}_n{N}_s{S}.json`: 8 methods × 5 costs, MAE / bias / RMSE / Spearman per K |
-| 4 | `scripts/report.py` | `outputs/report/`: summary.json, wins.json, figures, report.html |
+| 4 | `scripts/report.py` | `outputs/report/`: summary.json (means over the 9 runs), fig_mae_vs_n.png, report.html |
 
 **Quick check: one configuration** (data seed 0, n = 200, model seed 0). This regenerates only the data that run needs
 and compares the result with the included file.
