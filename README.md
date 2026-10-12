@@ -23,7 +23,7 @@ simulation, and that changes the cost of the following goals.
 | Policy | A PD controller that follows the shortest path to the current goal. When the ball reaches the goal (radius 0.2), the next goal starts; the ball keeps its velocity |
 | Real vs. simulation | Sim2Sim. "Real" is the same simulator with weaker force (β = 0.85) and much weaker brakes (brake = 0.4). It reaches junctions faster and swings wide in turns |
 | Paired data | The real system drives random goal sequences (2–8 goals). At every segment, the simulator is set to the same state as the real system and drives to the same goal. n = 200–1000 segments, plus 50 for validation |
-| Simulation-only data | 24,000 one-segment simulations from many random states (position and velocity) around the goals |
+| Simulation-only data | One-segment simulations from two kinds of start states. (1) 20,000 from random states around the goals: random position near a goal with random velocity (60%), states where a simulated segment ended (30%), or at rest on a goal (10%). (2) 4,000 from the real states seen in the paired data (where the real run started or ended a segment), with small noise, so that the simulation data also cover where the real system actually goes |
 | Test sequences | 536 sequences of K = 1, 2, 4, 8 goals, all starting at rest. Ground truth: mean of 100 real runs |
 | Training | Same small MLP and the same training budget for every method |
 | Repetitions | 3 data seeds × 3 model seeds = 9 runs for each n |
