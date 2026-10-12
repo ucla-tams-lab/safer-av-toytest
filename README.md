@@ -31,9 +31,67 @@ mismatch changes the cost of all remaining goals.
 | baseline | Target-only | our backward learning, but with real data only |
 | baseline | B1 MC-real | learns the real cost of whole goal sequences directly from the real runs |
 | baseline | B2 route-level SCAPE | like B1, with the simulated cost of the sequence as an extra input |
-| ours | Direct | reads the learned real value $\widehat W(x_1;\mathbf g_{1:K})$ at the start state |
-| ours | Sim-backed | simulates the test sequence and adds the learned correction at every segment |
-| ours | Residual direct | simulated cost plus a learned real–simulation difference |
+| ours | Direct | reads the learned real value at the start state (no simulation at test time) |
+| ours | Sim-backed | runs the test sequence in simulation and corrects every simulated segment |
+| ours | Residual direct | simulated cost of the sequence plus a learned real–simulation difference |
+
+### How our three estimators work
+
+Notation: a test sequence starts at state $x_1$ and visits goals $\mathbf g_{1:K}=(g_1,\dots,g_K)$. For one segment,
+$y^\mathrm R, y^\mathrm S$ are its real and simulated costs and $x^\mathrm R_+, x^\mathrm S_+$ the states where the real and
+the simulated run end it. $\mathbf g_{k:K}$ are the goals still to visit.
+
+**Two learned models (used by Direct and Sim-backed).**
+
+- $W_\theta(x;\mathbf g_{k:K})$: the expected **real** cost of visiting the remaining goals $\mathbf g_{k:K}$ from state $x$.
+  It is learned backward: first with one remaining goal, then two, and so on up to eight. For a paired segment the
+  training target is this segment's real cost plus the already learned value of the rest, starting from where the real
+  run ended:
+
+  $$\widehat Z_\mathrm R = y^\mathrm R + \widehat W(x^\mathrm R_+;\mathbf g_{k+1:K}).$$
+
+- $h_\phi(x,\mathbf g_{k:K},z^\mathrm S)$: a calibration model that maps the same quantity computed from the simulated
+  run, $\widehat Z_\mathrm S = y^\mathrm S + \widehat W(x^\mathrm S_+;\mathbf g_{k+1:K})$, to the real one $\widehat Z_\mathrm R$.
+  It is fit on paired segments. Simulation-only segments have no real run, so $h_\phi$ turns their $\widehat Z_\mathrm S$
+  into a corrected real target $\widetilde Z_\mathrm R = h_\phi(x,\mathbf g_{k:K},\widehat Z_\mathrm S)$, which is extra
+  training data for $W_\theta$ (75% of the training rows are paired, 25% corrected simulation rows).
+
+**1. Direct.** Read the learned value at the start state:
+
+$$\widehat J_\mathrm R^\mathrm{direct} = \widehat W(x_1;\mathbf g_{1:K}).$$
+
+**2. Sim-backed: run the sequence in simulation, then correct every segment.** Run the whole test sequence $M=30$
+times in simulation from $x_1$. For run $j$ and segment $k$, with simulated cost $Y^\mathrm S_{j,k}$ and states
+$X^\mathrm S_{j,k}\to X^\mathrm S_{j,k+1}$:
+
+$$\widehat Z^\mathrm S_{j,k} = Y^\mathrm S_{j,k} + \widehat W(X^\mathrm S_{j,k+1};\mathbf g_{k+1:K}),\qquad
+\widehat\Delta_{j,k} = h_\phi\big(X^\mathrm S_{j,k},\mathbf g_{k:K},\widehat Z^\mathrm S_{j,k}\big) - \widehat Z^\mathrm S_{j,k},$$
+
+$$\widehat J_\mathrm R^\mathrm{sim} = \underbrace{\frac1M\sum_{j=1}^{M}\sum_{k=1}^{K} Y^\mathrm S_{j,k}}_{\text{simulated cost}}
++ \underbrace{\sum_{k=1}^{K}\frac1M\sum_{j=1}^{M}\widehat\Delta_{j,k}}_{\text{correction per segment}}.$$
+
+$\widehat\Delta_{j,k}$ is how much more (or less) the real system would cost than the simulation from the same state
+$X^\mathrm S_{j,k}$, including the effect of ending the segment in a different state. Summing these corrections along
+simulated runs gives exactly the real–simulation gap when the models are exact (sim-to-real decomposition,
+METHODOLOGY §5).
+
+**3. Residual direct: learn only the real–simulation difference.** Write the real value as the simulated value plus a
+difference, $W_\mathrm R = W_\mathrm S + D$. $W_\mathrm S(x;\mathbf g)$ is not learned: it is computed by running the
+simulator from $x$ through the goals $\mathbf g$. Only $D$ is learned, backward like $W_\theta$, with the target
+
+$$D(x;\mathbf g_{k:K}) \leftarrow \underbrace{(y^\mathrm R - y^\mathrm S)}_{\text{cost difference of this segment}}
++ \underbrace{\big[W_\mathrm S(x^\mathrm R_+;\mathbf g_{k+1:K}) - W_\mathrm S(x^\mathrm S_+;\mathbf g_{k+1:K})\big]}_{\text{effect of the different end state, measured in simulation}}
++ \underbrace{\widehat D(x^\mathrm R_+;\mathbf g_{k+1:K})}_{\text{learned difference of the rest}}.$$
+
+Simulation-only segments enter through a calibration model, as above. The estimate is the simulated cost of the test
+sequence plus the learned difference:
+
+$$\widehat J_\mathrm R^\mathrm{res} = \widehat J_\mathrm S + \widehat D(x_1;\mathbf g_{1:K}).$$
+
+This helps when the difference is much smaller than the cost itself. For Path, the K=8 real cost is about 20.5 and
+the real–simulation difference about 1; learning a value of 20 with 0.3% error already costs 0.06, while learning a
+difference of 1 does not have this problem. The price is that $W_\mathrm S$ needs many multi-segment simulation runs
+during training.
 
 ## Evaluation
 
