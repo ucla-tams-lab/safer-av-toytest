@@ -9,6 +9,12 @@ mismatch changes the cost of all remaining goals.
 - Results page: `outputs/report/report.html` (a single file with embedded figures; download it and open it in a browser,
   since GitHub shows HTML files as source)
 
+![Simulation vs real](outputs/report/fig_env.png)
+
+The same policy drives the same goal sequence in simulation (blue) and in "real" (red). Real reaches the junctions
+faster and swings wide into the outer wall in turns (black dots), so it ends each segment in a different state than the
+simulation, and that changes the cost of the following goals.
+
 ## Setting
 
 | Item | Setting |
@@ -124,6 +130,7 @@ A GPU is strongly recommended for step 3; CPU-only training works but is very sl
 | 2 | `scripts/make_rows.py` | `data/`: simulated transitions near the real states (seedR), Monte Carlo rows for the residual variant, B1/B2 windows |
 | 3 | `scripts/run.py D N S` | `outputs/results/res_d{D}_n{N}_s{S}.json`: 8 methods × 5 costs, MAE / bias / RMSE / Spearman per K |
 | 4 | `scripts/report.py` | `outputs/report/`: summary.json (means over the 9 runs), fig_mae_vs_n.png, report.html |
+| – | `scripts/plot_env.py` | `outputs/report/fig_env.png`: the environment figure above |
 
 **Quick check: one configuration** (data seed 0, n = 200, model seed 0). This regenerates only the data that run needs
 and compares the result with the included file.
