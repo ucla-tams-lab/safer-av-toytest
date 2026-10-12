@@ -13,28 +13,27 @@ mismatch changes the cost of all remaining goals.
 
 | Item | Setting |
 |---|---|
-| Environment | PointMaze (MuJoCo ball) with a 9×7-cell maze; 9 local goals A–I at the junctions. A valid goal sequence is a non-backtracking walk between adjacent goals |
-| Policy $\pi$ | PD controller (kp 2.0, kd 0.4) toward the end of the current straight corridor of the shortest path; sees only the current goal. A segment ends on entering the radius-0.2 ball around the goal (timeout 5 s); the terminal state keeps its velocity |
-| Real vs. simulation | Sim2Sim: the "real" system is the simulator with weaker force transmission (β = 0.85) and much weaker braking (brake = 0.4: only 40% of commands opposing the velocity). Both have actuation noise 0.02 (`configs/env.json`) |
-| Segment costs | Safety, Exposure, TTC, Path, Time (see Evaluation); the sequence cost is their sum ($\gamma=1$) |
-| Test sequences | 100 random sequences each for K = 1, 2, 4, 8, plus 136 K=4 sequences grouped by first edge (536 in total). All start at rest at a goal. $J_\mathrm R$ is the mean over 100 real rollouts |
-| $\mathcal D_\mathrm{pair}$ | paired transitions extracted from real rollouts along random goal sequences of length 2–8 (real chains); at every segment the simulator is set to the current real state and executes the same goal. n = 200, 400, 600, 800, 1000, plus 50 for validation |
-| $\mathcal D_\mathrm S$ | 20,000 one-segment simulated transitions plus 4,000 started near the real states of the n paired transitions |
-| Training | MLP 3×256, AdamW (lr 1e-3). Same budget for every method: stop after 3,000 gradient steps without validation improvement, at most 30,000 steps. Paired targets make up 75% of the training rows of $W_\theta$ |
-| Repetitions | 3 data seeds × 3 model seeds = 9 runs per n; 45 runs in total |
+| Environment | PointMaze (MuJoCo ball) in a 9×7-cell maze with 9 goals A–I at the junctions. A goal sequence moves between adjacent goals and never turns back |
+| Policy | A PD controller that follows the shortest path to the current goal. When the ball reaches the goal (radius 0.2), the next goal starts; the ball keeps its velocity |
+| Real vs. simulation | Sim2Sim. "Real" is the same simulator with weaker force (β = 0.85) and much weaker brakes (brake = 0.4). It reaches junctions faster and swings wide in turns |
+| Paired data | The real system drives random goal sequences (2–8 goals). At every segment, the simulator is set to the same state as the real system and drives to the same goal. n = 200–1000 segments, plus 50 for validation |
+| Simulation-only data | 24,000 one-segment simulations from many random states (position and velocity) around the goals |
+| Test sequences | 536 sequences of K = 1, 2, 4, 8 goals, all starting at rest. Ground truth: mean of 100 real runs |
+| Training | Same small MLP and the same training budget for every method |
+| Repetitions | 3 data seeds × 3 model seeds = 9 runs for each n |
 
 **Compared methods**
 
-| Type | Name | Description |
+| Type | Name | What it does |
 |---|---|---|
-| baseline | Raw simulation | $\widehat J_\mathrm S$: mean simulated cost of the target sequence |
-| baseline | Segment-wise outcome correction | $J_\mathrm{seg}$ (SCAPE-style): a learned per-segment correction $h_\mathrm{out}(x,g,y^\mathrm S)\to y^\mathrm R$ summed along simulation rollouts; ignores the terminal-state mismatch |
-| baseline | Target-only | backward Bellman learning of $W_\theta$ on the real side of $\mathcal D_\mathrm{pair}$ only (no simulation data) |
-| baseline | B1 MC-real | direct regression of observed real returns over every window of the same real rollouts (no Bellman decomposition) |
-| baseline | B2 route-level SCAPE | $h(x,\mathbf g, J_\mathrm S)\to$ observed real return on the same windows |
-| proposed | Direct | $\widehat J_\mathrm R^\mathrm{direct}=\widehat W_1(x_1;\mathbf g_{1:K})$ (direct amortized estimator) |
-| proposed | Simulation-backed | $\widehat J_\mathrm R^\mathrm{sim}$: target-sequence simulation rollouts plus the calibrated correction $h_\phi-\widehat Z_\mathrm S$ per segment |
-| proposed | Residual direct | $W_\mathrm R=W_\mathrm S+D$ with $W_\mathrm S$ from simulation Monte Carlo; only $D$ is learned; estimate $\widehat J_\mathrm S+\widehat D(x_1;\mathbf g_{1:K})$ (METHODOLOGY §7) |
+| baseline | Raw sim | simulation cost, no correction |
+| baseline | Segment-wise outcome correction | SCAPE-style: corrects the cost of each segment along the simulated run; ignores that the real run ends a segment in a different state |
+| baseline | Target-only | our backward learning, but with real data only |
+| baseline | B1 MC-real | learns the real cost of whole goal sequences directly from the real runs |
+| baseline | B2 route-level SCAPE | like B1, with the simulated cost of the sequence as an extra input |
+| ours | Direct | reads the learned real value $\widehat W(x_1;\mathbf g_{1:K})$ at the start state |
+| ours | Sim-backed | simulates the test sequence and adds the learned correction at every segment |
+| ours | Residual direct | simulated cost plus a learned real–simulation difference |
 
 ## Evaluation
 
