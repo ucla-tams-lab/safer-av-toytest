@@ -21,12 +21,13 @@ than the simulation, and that changes the cost of the following goals.
 | Item | Setting |
 |---|---|
 | Environment | PointMaze (MuJoCo ball) in a 9×7-cell maze with 9 local goals A–I at the junctions. A goal sequence moves between adjacent goals and never turns back |
+| Observation x | The ball's position and velocity (p_x, p_y, v_x, v_y), the full state of the simulation: the policy and both dynamics depend only on x and the current goal. Every segment starts and ends at such an observation |
 | Policy | A PD controller that follows the shortest path to the current goal. When the ball reaches the goal (radius 0.2), the next goal starts; the ball keeps its velocity |
 | Real vs. simulation | Sim2Sim. "Real" is the same simulator with weaker force (β = 0.85) and much weaker brakes (brake = 0.4). It reaches junctions faster and swings wide in turns |
 | Paired real and simulated segment transitions | The real system drives random goal sequences (2–8 goals). At every goal boundary, the simulator is set to the recorded real observation and drives to the same goal. n = 200–1000 transitions, plus 50 for validation |
 | Simulation-only segment transitions | One-segment simulations from two kinds of start observations. (1) 20,000 from random observations around the goals: random position near a goal with random velocity (60%), observations where a simulated segment ended (30%), or at rest on a goal (10%). (2) 4,000 from the real observations seen in the paired transitions (where a real segment started or ended), with small noise, so that the simulation data also cover where the real system actually goes |
 | Evaluation queries | 536 goal sequences of K = 1, 2, 4, 8 goals, all starting at rest. Ground truth: mean of 100 real runs |
-| Training | Same small MLP and the same training budget for every method |
+| Training | Same small MLP and the same training budget for every method. Input of `V_θ`: x and the remaining goals (up to 8 goal positions with a mask); the calibrator `h_φ` also gets `Z_S` |
 | Repetitions | 3 data seeds × 3 model seeds = 9 runs for each n |
 
 **Compared methods**
