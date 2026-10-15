@@ -9,6 +9,7 @@ continuation value function from short to long goal sequences, using simulation 
 - Method: [METHODOLOGY.md](METHODOLOGY.md)
 - Results page: `outputs/report/report.html` (a single file with embedded figures; download it and open it in a browser,
   since GitHub shows HTML files as source)
+- Car version (a 1/10-scale car in the same maze; same method, costs and evaluation): [car/README.md](car/README.md)
 
 ![Simulation vs real](outputs/report/fig_env.png)
 

@@ -1,0 +1,5 @@
+data/
+data_simtoy/
+outputs/logs*/
+outputs/results*/preds_*.json
+__pycache__/
