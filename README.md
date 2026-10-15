@@ -21,7 +21,7 @@ than the simulation, and that changes the cost of the following goals.
 | Item | Setting |
 |---|---|
 | Environment | PointMaze (MuJoCo ball) in a 9×7-cell maze with 9 local goals A–I at the junctions. A goal sequence moves between adjacent goals and never turns back |
-| Observation x | The ball's position and velocity (p_x, p_y, v_x, v_y), the full state of the simulation: the policy and both dynamics depend only on x and the current goal. Every segment starts and ends at such an observation |
+| Observation x | 4 numbers: the ball's position and velocity (p_x, p_y, v_x, v_y). x and the goals are enough to predict what happens next (up to the actuation noise) |
 | Policy | A PD controller that follows the shortest path to the current goal. When the ball reaches the goal (radius 0.2), the next goal starts; the ball keeps its velocity |
 | Real vs. simulation | Sim2Sim. "Real" is the same simulator with weaker force (β = 0.85) and much weaker brakes (brake = 0.4). It reaches junctions faster and swings wide in turns |
 | Paired real and simulated segment transitions | The real system drives random goal sequences (2–8 goals). At every goal boundary, the simulator is set to the recorded real observation and drives to the same goal. n = 200–1000 transitions, plus 50 for validation |
