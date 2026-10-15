@@ -57,8 +57,10 @@ nob = [r for c in COSTS for m in ("B1_mc_real", "B2_route_scape") for r in ratio
 red = [1 - r for c in COSTS for r in ratio(c, "W_direct", "target_only")]
 beats = {K: all(g(c, K, n, "W_direct") < min(g(c, K, n, m) for m, _ in BASE) for c in COSTS for n in N) for K in KS}
 k1_raw = [CNAME[c] for c in ORDER if all(min(METHODS, key=lambda t: g(c, "K=1", n, t[0]))[0] == "raw_sim" for n in N)]
-best = {c: sorted({LABEL[min(OURS, key=lambda t: g(c, "K=8", n, t[0]))[0]] for n in N}) for c in ORDER}
+sb_cells = [(g(c, "K=8", n, "W_simbacked"), g(c, "K=8", n, "W_direct")) for c in COSTS for n in N]
+sb_better, sb_worse_n = sum(a < b for a, b in sb_cells), sum(a > b for a, b in sb_cells)
 sb_worse = [CNAME[c] for c in ORDER if sum(g(c, "K=8", n, "W_simbacked") > g(c, "K=8", n, "target_only") for n in N) >= 3]
+res_best = [CNAME[c] for c in ORDER if sum(min(OURS, key=lambda t: g(c, "K=8", n, t[0]))[0] == "res_direct" for n in N) >= 3]
 BEST = ' class="best"'
 
 
@@ -92,31 +94,35 @@ html = f"""<title>safer-av toy study</title>
 <p class="eyebrow">safer-av · PointMaze Sim2Sim</p>
 <h1>Terminal-State-Aware Long-Horizon Sim-to-Real Evaluation: toy study</h1>
 <p class="sub">A fixed goal-conditioned policy visits K goals in a PointMaze maze; the "real" system is the simulator with weaker
-force transmission and braking. From n short real–simulation paired transitions (plus simulated transitions), each method
-estimates the real cost of 536 test goal sequences, separately for five costs (Safety, Exposure, TTC, Path, Time).
+force transmission and braking. From n paired real and simulated segment transitions (plus simulation-only segment transitions),
+each method estimates the real cost of 536 evaluation queries (goal sequences), separately for five costs (Safety, Exposure, TTC, Path, Time).
 All numbers are mean absolute errors averaged over 9 runs (3 data seeds × 3 model seeds). Setting, metrics and method
 details: README.md and METHODOLOGY.md.</p>
 
 <div class="lede">
 <b>Key results (mean over 9 runs)</b>
 <ul>
-<li><strong>The proposed direct estimator beats every baseline.</strong> For K = 2, 4 and 8 its error is below every baseline for all five
+<li><strong>The direct estimator (our main estimator) beats every baseline.</strong> For K = 2, 4 and 8 its error is below every baseline for all five
 costs and every n{'' if all(beats[K] for K in ("K=2", "K=4", "K=8")) else ' (with exceptions, see tables)'}. Against target-only, the strongest baseline
 (the same backward Bellman learning on real data only), it reduces the K=8 error by {100 * min(red):.0f}–{100 * max(red):.0f}% across costs and n.</li>
 <li><strong>Correcting only segment outcomes is not enough.</strong> Segment-wise outcome correction (SCAPE-style) has
 {min(seg):.0f}–{max(seg):.0f}× the error of target-only on Safety and Exposure, because it ignores the terminal-state mismatch.</li>
 <li><strong>The Bellman decomposition is needed.</strong> Learning long-sequence costs directly from the same real rollouts (B1, B2)
 has {min(nob):.1f}–{max(nob):.0f}× the error of the direct estimator.</li>
-<li><strong>The best proposed estimator depends on the cost:</strong> {'; '.join(f"{CNAME[c]}: {', '.join(best[c])}" for c in ORDER)}.
-The simulation-backed estimator is worse than target-only on {', '.join(sb_worse) if sb_worse else 'no cost'} for most n.</li>
-<li><strong>At K = 1 no correction is needed.</strong> Test sequences start at rest, and one segment from rest is almost the same in real
+<li><strong>Simulation-backed estimation gives no clear advantage.</strong> It equals the direct estimator in expectation
+(METHODOLOGY, Section 3.3); in the K=8 results it is lower than Direct in {sb_better} and higher in {sb_worse_n} of the {len(sb_cells)} cost × n cells,
+and worse than target-only on {', '.join(sb_worse) if sb_worse else 'no cost'} for most n.</li>
+<li><strong>The residual variant (also tried) is the lowest of our three estimators on {', '.join(res_best) if res_best else 'no cost'}</strong>
+for most n; it needs extra multi-segment simulation during training.</li>
+<li><strong>At K = 1 no correction is needed.</strong> Evaluation queries start at rest, and one segment from rest is almost the same in real
 and simulation; raw simulation is the most accurate at K = 1 ({', '.join(k1_raw) if k1_raw else 'no cost'}).</li>
 </ul>
 </div>
 
 <h2>K = 8 error by method</h2>
 <p class="note">Raw sim: uncorrected simulation. Seg. outcome: segment-wise outcome correction. Target-only: backward Bellman on real data only.
-B1: direct regression of real returns. B2: route-level SCAPE. Direct, Sim-backed, Residual direct: proposed. Lowest error highlighted.</p>
+B1: direct regression of real returns. B2: route-level SCAPE. Direct: our main estimator. Sim-backed: our second evaluation mode (equal to Direct
+in expectation). Residual direct: a variant we also tried. Lowest error highlighted.</p>
 {k8_table()}
 <figure><div class="plate"><img src="{img(OUT / 'fig_mae_vs_n.png')}" alt="K=8 MAE versus the number of paired transitions for each cost"></div>
 <figcaption>K=8 MAE versus the number of paired transitions n (mean over 9 runs; bars: std across runs). Dashed grey: target-only.</figcaption></figure>
@@ -129,7 +135,7 @@ B1: direct regression of real returns. B2: route-level SCAPE. Direct, Sim-backed
 <h2>Limitations</h2>
 <ul>
 <li>Sim2Sim study (real = simulation with changed dynamics) in one maze with 9 fixed goals; not tested on a physical system or new layouts.</li>
-<li>The 75% share of paired targets in the training rows of W<sub>θ</sub> was chosen by looking at test results (a small sweep).</li>
+<li>The 75% share of real targets in the training rows of V<sub>θ</sub> was chosen by looking at test results (a small sweep).</li>
 <li>The residual variant needs multi-segment simulation rollouts from arbitrary states during training.</li>
 </ul>
 <p class="note">Per-run metrics (MAE, bias, RMSE, Spearman for every K and n): <span class="mono">outputs/results/</span>; means: <span class="mono">outputs/report/summary.json</span>.</p>

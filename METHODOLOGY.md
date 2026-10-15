@@ -1,259 +1,258 @@
 # Terminal-State-Aware Long-Horizon Sim-to-Real Evaluation
 
-We consider long-horizon policy evaluation with limited short real–simulation paired transitions and abundant short
-simulated transitions. Correcting only the simulated segment outcomes is insufficient because real and simulated
-executions may terminate in different states, which changes the performance of all remaining goals. We propose
-**backward Bellman calibration**, which reuses local transitions across valid remaining-goal sequences. The learned
-models support both simulation-free direct prediction and a simulation-backed estimator justified by a finite-horizon
-simulation lemma. Target-sequence simulation rollouts are generated at evaluation time.
+Reliable policy evaluation in real-world settings is essential for determining whether a policy can operate safely
+under a given scenario. Simulation-augmented policy evaluation combines limited real-world data with scalable
+simulation-based testing to improve performance estimation. However, extending this approach to long horizons involving
+multiple goal sequences remains challenging. Real-world rollouts that cover diverse, extended goal sequences are
+difficult to obtain, and the sim-to-real gap can compound over successive goals as the robot's state diverges between
+simulation and the real world. Consequently, simulation rollouts cannot be used directly to estimate real-world
+performance over long sequences.
 
-Sections 1–6 describe the method. Section 7 describes the residual variant that is also evaluated in the toy study, and
-Section 8 states how the method is instantiated in this repository.
+To address this challenge, we propose **backward Bellman calibration**, a method for estimating performance over
+increasingly long goal sequences by reusing estimates for their future goal suffixes. We further introduce a real-sim
+calibration procedure that corrects simulation-based Bellman targets using paired real-world and simulated data.
+Together, these methods enable simulation data to support the estimation of real-world policy performance over long
+goal sequences.
+
+Sections 1–3 describe the method. Section 4 describes a residual variant that we also tried in the toy study (it is not
+part of the method), and Section 5 states how the method is instantiated in this repository.
 
 ---
 
-## 1. Problem setting
+## 1. Problem formulation
 
-An evaluation query is a goal sequence $\mathbf g_{1:K}=(g_1,\dots,g_K)$ of $K$ local goals executed by a fixed
-goal-conditioned policy $\pi$. The sequence length and ordering may vary across queries. For environment
-$e\in\lbrace \mathrm R,\mathrm S\rbrace$ (real, simulation), segment $k$ begins from state $X_k^e$ and produces a scalar cost
-$Y_k^e$ and terminal state $X_{k+1}^e$:
+### 1.1 Evaluation query and goal-conditioned policy
 
-$$
-(Y_k^e, X_{k+1}^e) \sim K_e^\pi(\cdot,\cdot \mid X_k^e, g_k).
-$$
-
-Both environments start from the same fixed initial state $x_1$. The long-horizon performance is
+Let $\mathcal G$ be a predefined set of local goals. We evaluate a fixed policy $\pi$ from an initial observation $x_1$
+over a valid sequence of $K$ goals drawn from $\mathcal G$,
 
 $$
-J_e^\pi(\mathbf g_{1:K}) := \mathbb E_e^\pi\Big[\sum_{k=1}^{K}\gamma^{k-1}Y_k^e\Big],\qquad \gamma\in(0,1],
+g_{1:K}=(g_1,\ldots,g_K),\qquad g_k\in\mathcal G.
 $$
 
-and the objective is to estimate the real performance $J_\mathrm R^\pi(\mathbf g_{1:K})$.
+The number and order of goals may vary across evaluation queries. While executing goal $g_k$, the policy selects each
+action from its current observation $x$ according to $\pi(a\mid x,g_k)$.
 
-**Short paired data.** A limited dataset
-$\mathcal D_\mathrm{pair}=\lbrace (x_{i,k}, g_i, y_{i,k}^\mathrm R, x_{i,k+1}^\mathrm R, y_{i,k}^\mathrm S, x_{i,k+1}^\mathrm S)\rbrace _{i=1}^{n}$,
-where the real and simulated executions start from the same state and execute the same local goal.
+### 1.2 Real and simulated segment transitions
 
-**Short simulation data.** A larger dataset of local simulated transitions
-$\mathcal D_\mathrm S=\lbrace (x_{j,k}^\mathrm S, g_j, y_{j,k}^\mathrm S, x_{j,k+1}^\mathrm S)\rbrace _{j=1}^{m}$, $m\gg n$.
-
-Here $i$ and $j$ index short-transition samples. When a transition is reused at position $k$ of a goal sequence, $k$
-denotes its assigned position and $k+1$ its terminal state. Short transitions may be collected independently or
-extracted from longer rollouts; they need not form connected trajectories for training.
-
-**Goal-sequence reuse.** A local transition for goal $g_k$ can be used to train values for multiple valid
-remaining-goal sequences $(g_k,\dots,g_K)$: its observed outcome and terminal state are combined with the previously
-learned value for the selected suffix $(g_{k+1},\dots,g_K)$. Reusing a transition with different suffixes does not
-create additional independent observations. A valid goal sequence must be **sequentially feasible**: after executing
-$g_k$, the next goal $g_{k+1}$ must be meaningful and executable from the resulting state.
-
-## 2. Why local outcome correction is insufficient
-
-A one-shot method such as SCAPE corrects the outcome mismatch $Y^\mathrm R-Y^\mathrm S$. A long-horizon task has an
-additional **terminal-state mismatch** $X_{k+1}^\mathrm R\neq X_{k+1}^\mathrm S$, which matters because the terminal
-state determines the difficulty of all remaining goals. With $\mu_e(x,g):=\mathbb E_e[Y^e\mid X^e=x,g]$, a
-**segment-wise outcome correction** estimates
+Executing each goal defines a segment. Let $e\in\lbrace \mathrm R,\mathrm S\rbrace$ denote the real world or
+simulation, and let $X_k^e$ be the observation at the start of segment $k$. The actions selected by $\pi$ during this
+segment produce a scalar cost $Y_k^e$ and a terminal observation $X_{k+1}^e$:
 
 $$
-J_\mathrm{seg}^\pi = J_\mathrm S^\pi + \sum_{k=1}^{K}\gamma^{k-1}\thinspace \mathbb E_{X_k\sim d_{\mathrm S,k}}\big[\mu_\mathrm R(X_k,g_k)-\mu_\mathrm S(X_k,g_k)\big],
+(Y_k^e,X_{k+1}^e)\sim P_e^\pi(\cdot\mid X_k^e,g_k).
 $$
 
-where $d_{\mathrm S,k}$ is the state distribution at segment $k$ of the long simulation rollout. Even with perfect local
-outcome correction, this follows the simulated state sequence and ignores that real execution may reach a different
-terminal state and therefore a different future cost. Directly predicting $X_{k+1}^\mathrm R$ from
-$X_{k+1}^\mathrm S$ instead requires predicting a potentially high-dimensional, multimodal state and propagating the
-prediction forward repeatedly.
+Here, $Y_k^e$ measures performance during the execution of $g_k$, such as a collision or traffic-rule violation cost.
+The terminal observation $X_{k+1}^e$ becomes the initial observation for the next goal. We assume that real and
+simulated observations share a representation and that $X_k^e$ contains the information needed to characterize the
+segment transition under $\pi$.
 
-## 3. Backward Bellman calibration
+### 1.3 Evaluation objective and available data
 
-### 3.1 Real continuation value
-
-For the remaining goal sequence $\mathbf g_{k:K}=(g_k,\dots,g_K)$, the **real continuation value** is
+For an evaluation query $(x_1,g_{1:K})$, our objective is to estimate the expected cumulative real-world cost
 
 $$
-W_{\mathrm R,k}^\pi(x;\mathbf g_{k:K}) := \mathbb E_\mathrm R^\pi\Big[\sum_{\ell=k}^{K}\gamma^{\ell-k}Y_\ell^\mathrm R \thinspace \Big|\thinspace  X_k^\mathrm R=x\Big],\qquad W_{\mathrm R,K+1}^\pi=0,
+J_\mathrm R^\pi(x_1,g_{1:K}) := \mathbb E_\mathrm R^\pi\Big[\sum_{k=1}^{K}\gamma^{k-1}Y_k^\mathrm R \thinspace\Big|\thinspace X_1^\mathrm R=x_1,\ g_{1:K}\Big],
 $$
 
-the expected discounted cost of executing all remaining goals in the real world from state $x$. A shared approximation
-$W_\theta(x;\mathbf g_{k:K})\approx W_{\mathrm R,k}^\pi(x;\mathbf g_{k:K})$ is learned. The remaining goal sequence is
-an input because the same state may be safe for one continuation and risky for another.
+where $\gamma\in(0,1]$ is the discount factor per segment.
 
-### 3.2 Paired Bellman targets
-
-Given an already learned $\widehat W_{k+1}$, a paired transition whose current goal is $g_k$ gives
+We have a limited set of paired real and simulated segment transitions,
 
 $$
-\widehat Z_{i,\mathrm R}^{(k)} := y_{i,k}^\mathrm R + \gamma\thinspace \widehat W_{k+1}(x_{i,k+1}^\mathrm R;\mathbf g_{k+1:K}),\qquad
-\widehat Z_{i,\mathrm S}^{(k)} := y_{i,k}^\mathrm S + \gamma\thinspace \widehat W_{k+1}(x_{i,k+1}^\mathrm S;\mathbf g_{k+1:K}).
+\mathcal D_\mathrm p=\big\lbrace (x_i^\mathrm p,g_i^\mathrm p,y_i^\mathrm R,x_{i,\mathrm{end}}^\mathrm R,y_i^\mathrm S,x_{i,\mathrm{end}}^\mathrm S)\big\rbrace_{i=1}^{n}.
 $$
 
-Both targets evaluate the remaining goals under real-world dynamics; they differ in how the current segment is
-executed. Their difference is
+Here, $i$ indexes the $n$ paired transitions, and the superscript $\mathrm p$ labels their shared starting observations
+and goals. In each pair, the real and simulated segments start from the same observation $x_i^\mathrm p$ and execute
+the same goal $g_i^\mathrm p$. These pairs need not be collected as independent, single-goal rollouts: a real-world
+rollout may execute a sequence of goals, with a simulated segment started from a recorded real-world observation at
+each selected goal boundary.
+
+We also have a larger set of simulation-only segment transitions,
 
 $$
-\widehat Z_{i,\mathrm R}^{(k)}-\widehat Z_{i,\mathrm S}^{(k)} =
-\underbrace{y_{i,k}^\mathrm R-y_{i,k}^\mathrm S}_{\text{current outcome mismatch}}
-+\gamma\underbrace{\big[\widehat W_{k+1}(x_{i,k+1}^\mathrm R)-\widehat W_{k+1}(x_{i,k+1}^\mathrm S)\big]}_{\text{future effect of terminal-state mismatch}} .
+\mathcal D_\mathrm s=\big\lbrace (x_j^\mathrm s,g_j^\mathrm s,y_j^\mathrm S,x_{j,\mathrm{end}}^\mathrm S)\big\rbrace_{j=1}^{m},\qquad m\gg n.
 $$
 
-The method does not reconstruct the real terminal state; it converts the terminal-state mismatch into its scalar effect
-on the remaining real-world performance.
+Here, $j$ indexes the $m$ simulation-only transitions, and the superscript $\mathrm s$ labels their starting
+observations and goals. These transitions may likewise be obtained from simulation rollouts that execute sequences of
+goals. The subscript $\mathrm{end}$ denotes the terminal observation of a segment. For segments extracted from the same
+rollout, we also retain their rollout membership and order.
 
-### 3.3 Calibration model
+## 2. Backward Bellman calibration
 
-The **calibration model**
+### 2.1 Real continuation value function
 
-$$
-h_\phi(x,\mathbf g_{k:K},z^\mathrm S)\approx \mathbb E\big[Z^\mathrm R \mid X=x,\ \mathbf G=\mathbf g_{k:K},\ Z^\mathrm S=z^\mathrm S\big]
-$$
-
-is learned from the paired targets $(\widehat Z_{i,\mathrm S}^{(k)},\widehat Z_{i,\mathrm R}^{(k)})$. For a short
-simulated transition in $\mathcal D_\mathrm S$, choose a valid remaining-goal sequence $\mathbf g_{k:K}$ with $g_k=g_j$
-and compute
+For a remaining goal sequence $g_{k:K}=(g_k,\ldots,g_K)$, define the real continuation value function
 
 $$
-\widehat Z_{j,\mathrm S}^{(k)} := y_{j,k}^\mathrm S + \gamma\thinspace \widehat W_{k+1}(x_{j,k+1}^\mathrm S;\mathbf g_{k+1:K}),\qquad
-\widetilde Z_{j,\mathrm R}^{(k)} := h_\phi\big(x_{j,k}^\mathrm S,\mathbf g_{k:K},\widehat Z_{j,\mathrm S}^{(k)}\big).
+V_\mathrm R^\pi(x;g_{k:K}) := \mathbb E_\mathrm R^\pi\Big[\sum_{\ell=k}^{K}\gamma^{\ell-k}Y_\ell^\mathrm R \thinspace\Big|\thinspace X_k^\mathrm R=x,\ g_{k:K}\Big].
 $$
 
-$W_\theta$ is trained on real targets from paired data and corrected targets from simulation:
-$W_\theta(x_{i,k};\mathbf g_{k:K})\leftarrow\widehat Z_{i,\mathrm R}^{(k)}$ (paired data) and
-$W_\theta(x_{j,k}^\mathrm S;\mathbf g_{k:K})\leftarrow\widetilde Z_{j,\mathrm R}^{(k)}$ (simulation data).
-
-### 3.4 Training over the remaining-goal length
-
-Training starts with one-goal sequences ($\widehat W_{K+1}=0$) and increases the remaining-goal length
-$L=1,2,\dots,L_\max$. At each length, paired and simulated short transitions are reused with valid remaining-goal
-sequences of that length, and the value for the shorter suffix is held fixed while the longer value is trained. The
-sequence-conditioned models $W_\theta$ and $h_\phi$ are shared across goal orderings. Dataset splits are made at the
-original transition level, before suffix augmentation.
-
-## 4. Two evaluation modes
-
-**Direct amortized estimator.**
-$\widehat J_\mathrm R^\mathrm{direct}(x_1,\mathbf g_{1:K}) := \widehat W_1(x_1;\mathbf g_{1:K})$.
-No new simulation rollout is needed per query; simulation is used during offline training and amortized into
-$W_\theta$. Its accuracy depends on whether $W_\theta$ generalizes to the new initial state and goal sequence.
-
-**Simulation-backed estimator.** Generate $M$ long simulation rollouts of the target sequence from $x_1$, with average
-cost $\widehat J_\mathrm S^\pi=\frac1M\sum_{j}\sum_k\gamma^{k-1}Y_{j,k}^\mathrm S$. For every simulated segment,
+It is the expected cost of executing the remaining goals in the real world from observation $x$. For an empty goal
+suffix, define $V_\mathrm R^\pi(x;\emptyset)=0$. In particular, the evaluation objective satisfies
 
 $$
-\widehat Z_{j,\mathrm S}^{(k)} := Y_{j,k}^\mathrm S+\gamma\thinspace \widehat W_{k+1}(X_{j,k+1}^\mathrm S;\mathbf g_{k+1:K}),\qquad
-\widehat\Delta_{j,k} := h_\phi\big(X_{j,k}^\mathrm S,\mathbf g_{k:K},\widehat Z_{j,\mathrm S}^{(k)}\big)-\widehat Z_{j,\mathrm S}^{(k)},
+J_\mathrm R^\pi(x_1,g_{1:K})=V_\mathrm R^\pi(x_1;g_{1:K}).
 $$
 
-$$
-\widehat J_\mathrm R^\mathrm{sim} = \widehat J_\mathrm S^\pi + \sum_{k=1}^{K}\gamma^{k-1}\frac1M\sum_{j=1}^{M}\widehat\Delta_{j,k}.
-$$
+We learn a goal-sequence-conditioned approximation $V_\theta(x;g_{k:K})$ to this value function, with
+$V_\theta(x;\emptyset)=0$. Training starts with one-goal sequences and proceeds to longer sequences, so the value for
+$g_{k+1:K}$ has already been learned when constructing targets for $g_{k:K}$.
 
-| Estimator | New target-route simulation | Main limitation |
-|---|---|---|
-| $\widehat J_\mathrm R^\mathrm{direct}$ | Not required | Value generalization |
-| $\widehat J_\mathrm R^\mathrm{sim}$ | Required | Simulation cost |
+### 2.2 Paired Bellman targets
 
-## 5. Theoretical interpretation
-
-### 5.1 Finite-horizon sim-to-real decomposition
-
-Fix a target sequence $\mathbf g_{1:K}$ (the result is route-wise). The **local Bellman discrepancy** is
+Select a paired transition
+$(x_i^\mathrm p,g_i^\mathrm p,y_i^\mathrm R,x_{i,\mathrm{end}}^\mathrm R,y_i^\mathrm S,x_{i,\mathrm{end}}^\mathrm S)\in\mathcal D_\mathrm p$
+and a valid remaining goal sequence $g_{k:K}$ with $g_i^\mathrm p=g_k$. Using the value function learned for the
+shorter suffix $g_{k+1:K}$, define
 
 $$
-\Delta_k(x) := \mathbb E_\mathrm R\big[Y_k^\mathrm R+\gamma W_{\mathrm R,k+1}^\pi(X_{k+1}^\mathrm R)\mid X_k^\mathrm R=x,g_k\big]
--\mathbb E_\mathrm S\big[Y_k^\mathrm S+\gamma W_{\mathrm R,k+1}^\pi(X_{k+1}^\mathrm S)\mid X_k^\mathrm S=x,g_k\big].
+Z_{i,\mathrm R}^{(k)} := y_i^\mathrm R+\gamma V_\theta(x_{i,\mathrm{end}}^\mathrm R;g_{k+1:K}),\qquad
+Z_{i,\mathrm S}^{(k)} := y_i^\mathrm S+\gamma V_\theta(x_{i,\mathrm{end}}^\mathrm S;g_{k+1:K}).
 $$
 
-**Proposition.** If real and simulated executions have the same initial-state distribution, then
+The shorter-suffix outputs of $V_\theta$ are held fixed when these targets are constructed. The real target
+$Z_{i,\mathrm R}^{(k)}$ combines the observed real cost of the current goal with the estimated real-world cost of the
+remaining goals. It serves as a training target for $V_\theta(x_i^\mathrm p;g_{k:K})$. The simulated target
+$Z_{i,\mathrm S}^{(k)}$ instead uses the observed simulated cost and estimates real-world continuation from the
+simulated terminal observation.
+
+The difference between the targets is
 
 $$
-J_\mathrm R^\pi-J_\mathrm S^\pi=\sum_{k=1}^{K}\gamma^{k-1}\thinspace \mathbb E_{X_k\sim d_{\mathrm S,k}}\big[\Delta_k(X_k)\big].
+Z_{i,\mathrm R}^{(k)}-Z_{i,\mathrm S}^{(k)} = y_i^\mathrm R-y_i^\mathrm S
++\gamma\big[V_\theta(x_{i,\mathrm{end}}^\mathrm R;g_{k+1:K})-V_\theta(x_{i,\mathrm{end}}^\mathrm S;g_{k+1:K})\big].
 $$
 
-*Proof sketch.* Let $G_k:=W_{\mathrm R,k}^\pi-W_{\mathrm S,k}^\pi$ and introduce the hybrid target
-$H_k(x):=\mathbb E_\mathrm S[Y_k^\mathrm S+\gamma W_{\mathrm R,k+1}^\pi(X_{k+1}^\mathrm S)\mid x,g_k]$ (simulated
-current outcome and next-state distribution, real continuation value). Then $W_{\mathrm R,k}^\pi-H_k=\Delta_k$ and
-$H_k-W_{\mathrm S,k}^\pi=\gamma\thinspace \mathbb E_\mathrm S[G_{k+1}(X_{k+1}^\mathrm S)\mid x,g_k]$, so
-$G_k(x)=\Delta_k(x)+\gamma\thinspace \mathbb E_\mathrm S[G_{k+1}(X_{k+1}^\mathrm S)\mid x,g_k]$. Averaging over
-$d_{\mathrm S,k}$, unrolling to $G_{K+1}=0$, and using $d_{\mathrm R,1}=d_{\mathrm S,1}$ gives the result. $\square$
+The first term is the difference in cost while executing the current goal. The second captures how the difference in
+terminal observations affects the estimated real-world cost of the remaining goals.
 
-**Interpretation.** At each segment, the remaining real–simulation gap splits into the local mismatch
-$\Delta_k(X_k)$ and the gap remaining after the *simulated* transition, $\gamma G_{k+1}(X_{k+1}^\mathrm S)$. Expanding
-the second part follows the simulated trajectory, so the correction is averaged under $d_{\mathrm S,k}$ rather than
-$d_{\mathrm R,k}$. Short paired transitions are used to learn $\Delta_k$; long simulation rollouts provide samples from
-$d_{\mathrm S,k}$. This is the justification of the simulation-backed estimator.
+Because the shorter-suffix value function is already learned, $Z_{i,\mathrm S}^{(k)}$ can also be computed for a
+simulation-only transition. We therefore use the paired targets to train a calibrator that predicts the real target
+from the starting observation, remaining goals, and simulated target. The calibrated targets then provide additional
+training data for the longer-suffix value function.
 
-### 5.2 Segment-wise correction as a special case
+### 2.3 Calibration and value-function training
 
-With the outcome-only discrepancy $\Delta_k^\mathrm{out}(x):=\mu_\mathrm R(x,g_k)-\mu_\mathrm S(x,g_k)$,
+Using paired transitions, we train a calibrator $h_\phi$ to predict $Z_{i,\mathrm R}^{(k)}$ from the shared starting
+observation $x_i^\mathrm p$, the remaining goals $g_{k:K}$, and the simulated target $Z_{i,\mathrm S}^{(k)}$:
 
 $$
-\Delta_k(x)=\Delta_k^\mathrm{out}(x)+\gamma\Big\lbrace \mathbb E_\mathrm R\big[W_{\mathrm R,k+1}^\pi(X_{k+1}^\mathrm R)\mid x,g_k\big]-\mathbb E_\mathrm S\big[W_{\mathrm R,k+1}^\pi(X_{k+1}^\mathrm S)\mid x,g_k\big]\Big\rbrace .
+h_\phi\big(x_i^\mathrm p,g_{k:K},Z_{i,\mathrm S}^{(k)}\big)\approx Z_{i,\mathrm R}^{(k)}.
 $$
 
-Segment-wise outcome correction is the special case that removes the second term, so
-
-**proposed method = segment-wise outcome correction + terminal-state continuation correction.**
-
-## 6. Required assumptions and scope
-
-We evaluate a fixed policy using a segment-level Markov state and additive costs. Goal sequences must be sequentially
-feasible. Reusing a short transition with different remaining-goal sequences assumes that the current segment's
-transition law depends only on its starting state and current goal; if the policy's current actions depend on the full
-plan, arbitrary suffix reuse is not valid.
-
-Real and simulated states must share a representation on which $W_\theta$ can be evaluated. The paired data must
-adequately cover the states visited in target simulation rollouts and the terminal states used to learn continuation
-values, and the paired calibration relationship must transfer to those states. Both estimators rely on the learned
-models generalizing to the states and goal suffixes used at evaluation. The simulation-backed estimator additionally
-requires the target sequence to be executable in simulation; the direct estimator must predict the full-sequence value
-from the initial state.
-
-The simulator is treated as a fixed black box: its parameters cannot be tuned to imitate the real system, and the
-real–simulation difference is not assumed to be expressible through simulator parameters. System identification and
-learned real-dynamics or next-state models are therefore outside the scope; the only operation is to correct
-simulation outcomes toward the real system.
-
-## 7. Residual variant (also evaluated in the toy study)
-
-The real continuation value is split into a simulation part and a residual,
-$W_{\mathrm R}(x;\mathbf g_{k:K}) = W_{\mathrm S}(x;\mathbf g_{k:K}) + D(x;\mathbf g_{k:K})$, where $W_\mathrm S$ is
-computed by running the simulator from $x$ along the remaining goals (Monte Carlo) and only $D$ is learned backward:
+For a simulation-only transition indexed by $j$ in $\mathcal D_\mathrm s$ with $g_j^\mathrm s=g_k$, compute
 
 $$
-D(x_{i,k};\mathbf g_{k:K}) \leftarrow \underbrace{(y_{i,k}^\mathrm R-y_{i,k}^\mathrm S)}_{\text{current outcome mismatch}}
-+\gamma\underbrace{\big[W_\mathrm S(x_{i,k+1}^\mathrm R)-W_\mathrm S(x_{i,k+1}^\mathrm S)\big]}_{\text{terminal-state mismatch, simulation value}}
-+\gamma\thinspace \widehat D_{k+1}(x_{i,k+1}^\mathrm R;\mathbf g_{k+1:K}).
+Z_{j,\mathrm S}^{(k)} := y_j^\mathrm S+\gamma V_\theta(x_{j,\mathrm{end}}^\mathrm S;g_{k+1:K}),\qquad
+Z_{j,\mathrm{cal}}^{(k)} := h_\phi\big(x_j^\mathrm s,g_{k:K},Z_{j,\mathrm S}^{(k)}\big).
 $$
 
-Simulation data enter through a calibration model $h_D(x,\mathbf g_{k:K},z^\mathrm S)$ with
-$z^\mathrm S=y^\mathrm S+\gamma W_\mathrm S(x^\mathrm S_{+})$, as in Section 3.3. The direct residual estimate is
-$\widehat J_\mathrm R = \widehat J_\mathrm S^\pi + \widehat D(x_1;\mathbf g_{1:K})$. Because the large common part
-$W_\mathrm S$ is not learned, this form helps when the real–simulation difference is small relative to the value itself
-(e.g. path length). It requires multi-segment simulation rollouts from arbitrary states during training, which departs
-from the short-simulation-data setting of Section 1.
+Here, $Z_{j,\mathrm{cal}}^{(k)}$ is the calibrated target for a simulation-only transition. We train $V_\theta$ with the
+real targets from paired transitions and the calibrated targets from simulation-only transitions:
 
-## 8. Instantiation in the toy study
+$$
+V_\theta(x_i^\mathrm p;g_{k:K})\approx Z_{i,\mathrm R}^{(k)},\qquad
+V_\theta(x_j^\mathrm s;g_{k:K})\approx Z_{j,\mathrm{cal}}^{(k)}.
+$$
+
+Thus, the value function for $g_{k:K}$ is learned using the previously learned value function for $g_{k+1:K}$. The
+newly learned values are then used to construct targets for longer goal sequences.
+
+## 3. Two evaluation modes
+
+### 3.1 Direct estimation using the value function
+
+Given an evaluation query $(x_1,g_{1:K})$, the direct estimator is
+
+$$
+J_\mathrm{direct}^\pi(x_1,g_{1:K}) := V_\theta(x_1;g_{1:K}).
+$$
+
+It estimates the expected real-world cost without simulating the evaluation query.
+
+### 3.2 Simulation-backed estimation
+
+When the evaluation query can be executed in simulation, we run $\pi$ from $x_1$ under the same goal sequence
+$g_{1:K}$. Let $(x_k^\mathrm S,y_k^\mathrm S,x_{k+1}^\mathrm S)$ be the observed result of simulated segment $k$, with
+$x_1^\mathrm S=x_1$. For each segment, compute
+
+$$
+Z_{k,\mathrm S} := y_k^\mathrm S+\gamma V_\theta(x_{k+1}^\mathrm S;g_{k+1:K}),\qquad
+Z_{k,\mathrm{cal}} := h_\phi(x_k^\mathrm S,g_{k:K},Z_{k,\mathrm S}).
+$$
+
+The simulation-backed estimate from this rollout is
+
+$$
+J_\mathrm{SB}^\pi(x_1,g_{1:K}) := \sum_{k=1}^{K}\gamma^{k-1}\big(y_k^\mathrm S+Z_{k,\mathrm{cal}}-Z_{k,\mathrm S}\big).
+$$
+
+When multiple simulated rollouts are available, we average the resulting estimates.
+
+### 3.3 Relation to direct estimation
+
+Suppose the mean calibrated target at each simulated observation matches the learned value function:
+
+$$
+\mathbb E_\mathrm S^\pi\big[Z_{k,\mathrm{cal}}\thinspace\big|\thinspace X_k^\mathrm S=x,\ g_{k:K}\big]=V_\theta(x;g_{k:K}).
+$$
+
+Since $Z_{k,\mathrm S}=Y_k^\mathrm S+\gamma V_\theta(X_{k+1}^\mathrm S;g_{k+1:K})$, taking the expectation of the
+simulation-backed estimator gives
+
+$$
+\mathbb E_\mathrm S^\pi\big[J_\mathrm{SB}^\pi(x_1,g_{1:K})\big]
+=\mathbb E_\mathrm S^\pi\Big[\sum_{k=1}^{K}\gamma^{k-1}\big(V_\theta(X_k^\mathrm S;g_{k:K})-\gamma V_\theta(X_{k+1}^\mathrm S;g_{k+1:K})\big)\Big]
+=V_\theta(x_1;g_{1:K})=J_\mathrm{direct}^\pi(x_1,g_{1:K}),
+$$
+
+where the terms cancel because $X_1^\mathrm S=x_1$ and $V_\theta(x;\emptyset)=0$. The simulation-backed estimator was
+essentially equivalent to the direct estimator in expectation and offered no clear advantage.
+
+## 4. Residual variant (tried in the toy study; not part of the method)
+
+We also tried splitting the real continuation value into a simulation part and a learned residual,
+$V_\mathrm R^\pi(x;g_{k:K})=V_\mathrm S^\pi(x;g_{k:K})+D(x;g_{k:K})$. Here $V_\mathrm S^\pi$ is computed by running the
+simulator from $x$ along the remaining goals (Monte Carlo), and only $D$ is learned backward, from the paired
+transitions:
+
+$$
+D(x_i^\mathrm p;g_{k:K}) \leftarrow \underbrace{(y_i^\mathrm R-y_i^\mathrm S)}_{\text{current-goal cost difference}}
++\gamma\underbrace{\big[V_\mathrm S^\pi(x_{i,\mathrm{end}}^\mathrm R;g_{k+1:K})-V_\mathrm S^\pi(x_{i,\mathrm{end}}^\mathrm S;g_{k+1:K})\big]}_{\text{terminal-observation difference, simulated value}}
++\gamma\thinspace \widehat D(x_{i,\mathrm{end}}^\mathrm R;g_{k+1:K}).
+$$
+
+Simulation-only transitions enter through a calibrator $h_D(x,g_{k:K},z^\mathrm S)$ with
+$z^\mathrm S=y^\mathrm S+\gamma V_\mathrm S^\pi(x_\mathrm{end}^\mathrm S;g_{k+1:K})$, as in Section 2.3. The estimate is
+the simulated cost of the evaluation query plus the learned residual, $\widehat J_\mathrm S^\pi(x_1,g_{1:K})+\widehat D(x_1;g_{1:K})$.
+Unlike the method above, this variant needs multi-segment simulation rollouts from arbitrary observations during
+training, which is outside the data setting of Section 1.3.
+
+## 5. Instantiation in the toy study
 
 | Element | Toy study (PointMaze Sim2Sim) |
 |---|---|
-| Local goals | 9 junction goals A–I; a valid goal sequence is a non-backtracking walk on the goal graph |
-| Policy $\pi$ | PD controller toward the end of the current straight corridor of the shortest path; sees only the current goal |
-| Segment | ends when the ball enters the radius-0.2 ball around the goal (or after 5 s); the terminal state keeps its velocity |
+| Local goals $\mathcal G$ | 9 junction goals A–I; a valid goal sequence is a non-backtracking walk on the goal graph |
+| Policy $\pi$ | PD controller toward the end of the current straight corridor of the shortest path; it sees only the current goal |
+| Segment | ends when the ball enters the radius-0.2 ball around the goal (or after 5 s); the terminal observation keeps its velocity |
 | Costs $Y_k$, $\gamma$ | Safety, Exposure, TTC, Path, Time (each evaluated separately); $\gamma=1$ |
-| $\mathcal D_\mathrm{pair}$ | paired transitions extracted from real rollouts along random goal sequences (real chains): at every segment the simulator is set to the current real state and executes the same goal |
-| $\mathcal D_\mathrm S$ | 20,000 one-segment simulated transitions plus 4,000 started near the real states of $\mathcal D_\mathrm{pair}$ |
-| Reuse | 6 sampled remaining-goal sequences per paired transition and length, 2 per simulated transition; $L_\max=8$ |
-| Training rows of $W_\theta$ | paired targets $\widehat Z_\mathrm R$ make up 75% of the rows, corrected simulation targets $\widetilde Z_\mathrm R$ 25% |
-| Simulation-backed estimator | $M=30$ target-sequence simulation rollouts |
-| Models | MLP 3×256 for $W_\theta$, $h_\phi$ and all learned baselines, same gradient-step budget for every method |
+| $\mathcal D_\mathrm p$ | real rollouts along random goal sequences; at every goal boundary the simulator is set to the recorded real observation and executes the same goal |
+| $\mathcal D_\mathrm s$ | 20,000 one-segment simulated transitions plus 4,000 started near the real observations of $\mathcal D_\mathrm p$ |
+| Remaining goal sequences | 6 sampled per paired transition and length, 2 per simulation-only transition; longest length 8 |
+| Training rows of $V_\theta$ | real targets $Z_\mathrm R$ make up 75% of the rows, calibrated targets $Z_\mathrm{cal}$ 25% |
+| Simulation-backed estimation | 30 simulated rollouts of every evaluation query |
+| Models | MLP 3×256 for $V_\theta$, $h_\phi$ and all learned baselines, same gradient-step budget for every method |
 
-**Compared methods.** Baselines: raw simulation $\widehat J_\mathrm S$; segment-wise outcome correction $J_\mathrm{seg}$
-(SCAPE-style); target-only (the same backward Bellman learning on the real side of $\mathcal D_\mathrm{pair}$ only, no
-simulation); B1 MC-real (direct regression of observed real returns of every window of the same real rollouts, no
-Bellman decomposition); B2 route-level SCAPE ($h(x,\mathbf g,J_\mathrm S)\to J_\mathrm R$ on the same windows).
-Proposed: $\widehat J_\mathrm R^\mathrm{direct}$, $\widehat J_\mathrm R^\mathrm{sim}$, and the residual direct estimate
-(Section 7).
+**Compared methods.** Baselines: raw simulation (the simulated cost of the evaluation query); segment-wise outcome
+correction (SCAPE-style: corrects the cost of each simulated segment but not the effect of the terminal observation on
+later goals); target-only (backward Bellman learning of $V_\theta$ on the real targets of $\mathcal D_\mathrm p$ only, no
+simulation); B1 MC-real (regression of the observed real costs of every window of the same real rollouts, no Bellman
+decomposition); B2 route-level SCAPE ($h(x,g,J_\mathrm S)\to J_\mathrm R$ on the same windows). Ours: direct estimation
+(the main estimator) and simulation-backed estimation. Also tried: the residual variant (Section 4).
 
-**Metrics.** Error against $J_\mathrm R$ from 100 real rollouts per test sequence: MAE, bias and Spearman rank
-correlation over test sequences, reported per sequence length $K$ and number of paired transitions $n$.
+**Metrics.** Error against $J_\mathrm R$ from 100 real rollouts per evaluation query: MAE, bias, RMSE and Spearman rank
+correlation over queries, reported per number of goals $K$ and number of paired transitions $n$.
